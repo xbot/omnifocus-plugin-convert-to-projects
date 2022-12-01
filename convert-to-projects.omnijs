@@ -3,7 +3,7 @@
     "targets": ["omnifocus"],
     "author": "Donie",
     "identifier": "org.0x3f.convert_to_projects",
-    "version": "1.1",
+    "version": "2.0",
     "description": "Convert selected tasks to projects and move them to the selected folder.",
     "label": "Convert to Projects",
     "shortLabel": "Convert to Projects",
@@ -11,95 +11,78 @@
     "image": "arrowshape.zigzag.right"
 }*/
 (() => {
-    const FIELD_FOLDERS = "Folders";
+    const preferences = new Preferences();
 
-    const MENU_END_OF_LIBRARY = "library_ending";
+    const devPlugin = PlugIn.find('org.0x3f.libdev');
 
-    const PREF_LAST_SELECTED_FOLDER = "lastSelectedFolder";
+    if (devPlugin === null) {
+        throw new Error('Dev library plugin not installed.');
+    }
 
-    let preferences = new Preferences();
+    const libdev = devPlugin.library('libdev');
+
+    const FIELD_FOLDERS = 'Folders';
+
+    const MENU_END_OF_LIBRARY = 'library_ending';
+
+    const PREF_LAST_SELECTED_FOLDER = 'lastSelectedFolder';
 
     var action = new PlugIn.Action(function (selection, sender) {
         try {
-            let menuItems = flattenedFolders.map((folder) => {
+            const folderIds   = flattenedFolders.map(folder => folder.id.primaryKey);
+            const folderNames = flattenedFolders.map((folder) => {
                 let label = folder.name;
 
                 while (folder.parent !== null) {
-                    label = folder.parent.name + " > " + label;
+                    label = folder.parent.name + ' > ' + label;
                     folder = folder.parent;
                 }
 
                 return label;
             });
 
-            let menuKeys = flattenedFolders.map((folder) => {
-                return folder.id.primaryKey;
-            });
+            folderNames.push('Append to the end of library');
+            folderIds.push(MENU_END_OF_LIBRARY);
 
-            menuItems.push("Append to the end of library");
-            menuKeys.push(MENU_END_OF_LIBRARY);
+            const selectedFolderId = libdev.getString(preferences, PREF_LAST_SELECTED_FOLDER, folderIds[0]);
 
-            let lastSelectedFolderID = preferences.readString(
-                PREF_LAST_SELECTED_FOLDER
-            );
-
-            let selectedKey = lastSelectedFolderID;
-            if (selectedKey === null) {
-                selectedKey = menuKeys[0];
-            }
-
-            let foldersMenu = new Form.Field.Option(
+            const foldersMenu = new Form.Field.Option(
                 FIELD_FOLDERS,
                 null,
-                menuKeys,
-                menuItems,
-                selectedKey
+                folderIds,
+                folderNames,
+                selectedFolderId
             );
 
-            let form = new Form();
+            const form = new Form();
+
             form.addField(foldersMenu);
 
-            let formTitle = "Convert to Projects";
-            let buttonLabel = "Convert";
+            form.validate = function (formObject) { return true; };
 
-            let formPromise = form.show(formTitle, buttonLabel);
-
-            form.validate = function (formObject) {
-                return true;
-            };
+            const formPromise = form.show('Convert to Projects', 'Convert');
 
             formPromise.then((formObject) => {
-                let selectedFolderIndex = formObject.values[FIELD_FOLDERS];
+                const selectedFolderId = formObject.values[FIELD_FOLDERS];
 
-                let selectedFolder =
-                    selectedFolderIndex === MENU_END_OF_LIBRARY
+                const selectedFolder =
+                    selectedFolderId === MENU_END_OF_LIBRARY
                         ? library.ending
-                        : Folder.byIdentifier(selectedFolderIndex);
+                        : Folder.byIdentifier(selectedFolderId);
 
                 if (selectedFolder === null) {
-                    throw {
-                        name: "InvalidFolder",
-                        message: "Invalid folder selected.",
-                    };
+                    throw { name: 'InvalidFolder', message: 'Invalid folder selected.', };
                 }
 
-                let newProjects = convertTasksToProjects(
-                    selection.tasks,
-                    selectedFolder
-                );
+                const newProjects = convertTasksToProjects(selection.tasks, selectedFolder);
 
-                let itemIDs = newProjects.map((project) => {
-                    return project.id.primaryKey;
-                });
+                const itemIDs = newProjects.map(project => project.id.primaryKey);
 
-                let urlString = "omnifocus:///task/" + itemIDs.join(",");
+                const urlString = 'omnifocus:///task/' + itemIDs.join(',');
 
                 URL.fromString(urlString).open();
 
-                preferences.write(
-                    PREF_LAST_SELECTED_FOLDER,
-                    selectedFolderIndex
-                );
+                preferences.write(PREF_LAST_SELECTED_FOLDER, selectedFolderId);
             });
         } catch (err) {
             new Alert(err.name, err.message).show();
